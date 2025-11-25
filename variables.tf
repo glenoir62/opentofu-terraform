@@ -10,6 +10,16 @@ variable "nom_serveur" {
   default = "web-01"
 }
 
+variable "roles" {
+  type = map(string)
+  default = {
+    "user"  = "lecture-seule"
+    "admin" = "ecriture"
+    "lecture-seule"  = "lecture-seule"
+  }
+}
+
+
 variable "zones" {
   type    = list(string)
   default = ["us-east-1a", "us-east-1b", "us-east-1c"]
