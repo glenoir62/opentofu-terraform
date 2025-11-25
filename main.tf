@@ -1,3 +1,14 @@
+resource "local_file" "index" {
+  filename = "${path.module}/index.html"
+  content  = "<html><body><h1>Bienvenue GLEO</h1></body></html>"
+}
+
+
+resource "local_file" "texte" {
+  filename = "${path.module}/exemple.txt"
+  content  = "Contenu généré automatiquement."
+}
+
 resource "docker_image" "nginx" {
   name         = "nginx"
   keep_locally = false
@@ -10,23 +21,9 @@ resource "docker_container" "web" {
     internal = 80
     external = var.container_port
   }
-}
-
-// Ressource local_file
-resource "local_file" "texte" {
-  filename = "${path.module}/exemple.txt"
-  content  = "Contenu généré automatiquement."
-}
-
-resource "local_file" "page" {
-  filename = "${path.module}/index.html"
-  content  = "<h1>Bienvenue</h1>"
-}
-
-resource "local_file" "exemple" {
-  filename             = "${path.module}/fichier.txt"
-  content              = "Texte généré"
-  file_permission      = "0644"
-  directory_permission = "0755"
-  sensitive_content    = "données critiques"
+  mounts {
+    target = "/usr/share/nginx/html/index.html"
+    source = abspath(local_file.index.filename)
+    type   = "bind"
+  }
 }
