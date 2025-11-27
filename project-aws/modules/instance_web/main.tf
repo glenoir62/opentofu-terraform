@@ -1,71 +1,52 @@
-/*
-tofu destroy -target=aws_instance.web_server
-export AWS_PROFILE=
-tofu apply -replace=aws_instance.web_server
+resource "aws_security_group" "web_sg" {
+  name        = "web-sg-${var.project_name}-${lower(var.environment_tag)}"
+  description = "Allow HTTP inbound traffic for ${var.project_name} WebServer"
 
-aws ec2 get-console-output --instance-id web_server_instance_id --profile projet1-sso
-
-
-Ce bloc data "aws_ami" "amazon_linux_2023" permet à Terraform de rechercher automatiquement l’image Amazon Machine Image (AMI)
- la plus récente correspondant à Amazon Linux 2023.
-  Il utilise le champ most_recent = true pour ne sélectionner qu’une seule image, publiée par Amazon (owners = ["amazon"]).
- */data "aws_ami" "amazon_linux_2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-kernel-*-x86_64"]
+  ingress {
+    description      = "HTTP from anywhere"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
   }
 
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
+  egress {
+    description      = "Allow all outbound traffic"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
   }
 
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
+  tags = {
+    Name        = "WebServer-SG-${var.project_name}"
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+    Environment = var.environment_tag
   }
 }
 
 resource "aws_instance" "web_server" {
-  ami           = data.aws_ami.amazon_linux_2023.id
-  instance_type = var.instance_type
+  ami           = var.ami_id        // Variable d'entrée du module
+  instance_type = var.instance_type // Variable d'entrée du module
 
   metadata_options {
     http_tokens   = "required"
     http_endpoint = "enabled"
   }
 
+  # Associer le groupe de sécurité créé DANS CE MODULE
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-  # User data corrigé pour Amazon Linux 2023
   user_data = <<-EOF
             #!/bin/bash
-            # Log tout dans un fichier pour debugging
-            exec > >(tee /var/log/user-data.log)
-            exec 2>&1
-
-            echo "=== Début du script user-data ==="
-            date
-
-            # Mise à jour du système
-            echo "Mise à jour du système..."
             dnf update -y
-
-            # Installation de Nginx (AL2023 utilise dnf, pas amazon-linux-extras)
-            echo "Installation de Nginx..."
-            dnf install -y nginx
-
-            # Démarrage et activation de Nginx
-            echo "Démarrage de Nginx..."
+            dnf install nginx -y
             systemctl start nginx
             systemctl enable nginx
-            systemctl status nginx
 
-            # Récupération des métadonnées
-            echo "Récupération des métadonnées..."
             TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 
             INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
@@ -74,8 +55,6 @@ resource "aws_instance" "web_server" {
             PUBLIC_IPV4=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/public-ipv4)
             PRIVATE_IPV4=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/local-ipv4)
 
-            # Création de la page HTML
-            echo "Création de la page HTML..."
             cat <<EOT > /usr/share/nginx/html/index.html
             <!DOCTYPE html>
             <html lang="fr">
@@ -94,7 +73,7 @@ resource "aws_instance" "web_server" {
                 </style>
               </head>
               <body>
-                <h1>🚀 Serveur Web NGINX - Environnement: ${var.environment_tag}</h1>
+                <h1>Informations sur cette Instance EC2 (Servi par NGINX) - Environnement: ${var.environment_tag}</h1>
                 <table>
                   <tr><th>Attribut</th><th>Valeur</th></tr>
                   <tr><td>ID de l'Instance</td><td>$INSTANCE_ID</td></tr>
@@ -103,35 +82,15 @@ resource "aws_instance" "web_server" {
                   <tr><td>IP Publique IPv4</td><td>$PUBLIC_IPV4</td></tr>
                   <tr><td>IP Privée IPv4</td><td>$PRIVATE_IPV4</td></tr>
                 </table>
-                <p style="margin-top: 20px; color: #666;">
-                  <small>Instance démarrée le $(date) | Géré par OpenTofu</small>
-                </p>
               </body>
             </html>
             EOT
-
-            # Redémarrage de Nginx pour être sûr
-            echo "Redémarrage de Nginx..."
-            systemctl restart nginx
-
-            echo "=== Fin du script user-data ==="
-            date
             EOF
 
   tags = {
     Name        = "WebServer-NGINX-${var.project_name}"
     Environment = var.environment_tag
-    ManagedBy   = "OpenTofu"
+    ManagedBy   = "Terraform"
     Project     = var.project_name
   }
-}
-
-output "web_server_public_ip" {
-  description = "Adresse IP publique de l'instance EC2 NGINX"
-  value       = "http://${aws_instance.web_server.public_ip}"
-}
-
-output "web_server_instance_id" {
-  description = "ID de l'instance EC2 NGINX"
-  value       = aws_instance.web_server.id
 }
