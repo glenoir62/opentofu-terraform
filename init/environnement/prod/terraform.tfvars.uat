@@ -1,0 +1,5 @@
+utilisateur = {
+  nom    = "GLEO prod"
+  actif  = true
+  niveau = 10
+}
