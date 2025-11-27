@@ -18,3 +18,13 @@ variable "environment_tag" {
   description = "Tag d'environnement."
   type        = string
 }
+
+variable "subnet_id" {
+  description = "L'ID du sous-réseau dans lequel lancer l'instance EC2."
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "L'ID du VPC pour le groupe de sécurité de l'instance."
+  type        = string
+}

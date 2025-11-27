@@ -30,3 +30,9 @@ variable "environment_tag" {
     error_message = "Le tag d'environnement ne peut pas être vide."
   }
 }
+
+variable "vpc_cidr_block" {
+  description = "Le bloc CIDR pour le VPC principal."
+  type        = string
+  default     = "10.0.0.0/16"
+}
