@@ -2,12 +2,12 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0" # Vous pouvez ajuster la version selon vos besoins
+      version = "~> 5.0"
     }
   }
 }
 
 provider "aws" {
-  region  = "eu-west-3" # Région où les ressources du backend seront créées
+  region  = var.aws_region // Utilisation de la variable
   profile = "projet1-sso"
 }

@@ -1,22 +1,32 @@
-variable "project_name" {
-  description = "Nom du projet"
+variable "aws_region" {
+  description = "La région AWS où les ressources seront déployées."
   type        = string
-  default     = "projet1"
+  default     = "eu-west-3"
 }
 
-variable "environment" {
-  description = "Environnement (dev, staging, prod)"
+variable "instance_type" {
+  description = "Le type d'instance EC2 à utiliser pour le serveur web."
   type        = string
-  default     = "dev"
-  
+  default     = "t2.micro"
+
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment doit être dev, staging ou prod."
+    condition     = contains(["t2.micro", "t2.small", "t3.micro", "t3.small"], var.instance_type)
+    error_message = "Le type d'instance doit être t2.micro, t2.small, t3.micro, ou t3.small."
   }
 }
 
-variable "utilisateur" {
-  description = "Nom de l'utilisateur/propriétaire"
+variable "project_name" {
+  description = "Nom du projet, utilisé pour le taggage des ressources."
   type        = string
-  default     = "gleo"
+  default     = "Projet1-IaC"
+}
+
+variable "environment_tag" {
+  description = "Tag d'environnement (ex: Development, Staging, Production)."
+  type        = string
+  default     = "Development"
+  validation {
+    condition     = length(var.environment_tag) > 0
+    error_message = "Le tag d'environnement ne peut pas être vide."
+  }
 }
