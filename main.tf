@@ -14,7 +14,7 @@ data "local_file" "html" {
 }
 
 resource "docker_image" "nginx" {
-  name         = "nginx"
+  name         = var.image_name
   keep_locally = false
 }
 resource "null_resource" "generate_config" {
@@ -24,10 +24,10 @@ resource "null_resource" "generate_config" {
 }
 resource "docker_container" "web" {
   image = docker_image.nginx.image_id
-  name  = "web-nginx"
+  name  = var.container_name
   ports {
-    internal = 80
-    external = var.container_port
+    internal = var.internal_port
+    external = var.external_port
   }
   volumes {
     host_path      = data.local_file.html.filename

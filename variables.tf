@@ -1,9 +1,42 @@
-variable "container_port" {
-  type        = number
-  default     = 8000
-  description = "Port exposé sur la machine hôte"
+variable "image_name" {
+  type        = string
+  description = "Nom de l'image Docker à utiliser"
+  default     = "nginx:latest"
+  validation {
+    condition     = can(regex("^.+:.+$", var.image_name)) || startswith(var.image_name, "nginx")
+    error_message = "L'image doit avoir un format valide (nom[:tag])"
+  }
 }
 
+variable "container_name" {
+  type        = string
+  description = "Nom du conteneur Docker"
+  default     = "nginx_container"
+  validation {
+    condition     = length(var.container_name) >= 3
+    error_message = "Le nom du conteneur doit contenir au moins 3 caractères"
+  }
+}
+
+variable "internal_port" {
+  type        = number
+  description = "Port interne exposé par le conteneur"
+  default     = 80
+  validation {
+    condition     = var.internal_port > 0 && var.internal_port < 65536
+    error_message = "Le port interne doit être compris entre 1 et 65535"
+  }
+}
+
+variable "external_port" {
+  type        = number
+  description = "Port externe mappé sur l'hôte"
+  default     = 8080
+  validation {
+    condition     = var.external_port > 0 && var.external_port < 65536
+    error_message = "Le port externe doit être compris entre 1 et 65535"
+  }
+}
 
 variable "nom_serveur" {
   type    = string
@@ -58,4 +91,5 @@ variable "utilisateur" {
 variable "coordonnees" {
   type    = tuple([number, number])
   default = [48.8584, 2.2945]
+  sensitive   = true
 }

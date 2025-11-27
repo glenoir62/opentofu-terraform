@@ -1,6 +1,17 @@
-output "url" {
-  value       = "http://localhost:${var.container_port}"
-  description = "URL locale du conteneur nginx"
+/*
+terraform output -json
+terraform output -raw nom_de_l_output
+terraform output
+ */
+
+output "internal_port" {
+  value       = "http://localhost:${var.internal_port}"
+  description = "URL internal_port du conteneur nginx"
+}
+
+output "external_port" {
+  value       = "http://localhost:${var.external_port}"
+  description = "URL external_port du conteneur nginx"
 }
 
 output "contenu_du_fichier" {
@@ -13,6 +24,7 @@ output "serveurs" {
 
 output "liste_serveurs" {
   value = split(", ", "web1, web2, web3")
+  sensitive   = true
 }
 
 output "uppercase" {
