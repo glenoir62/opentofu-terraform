@@ -1,0 +1,101 @@
+name: Terraform Validate, Lint & Scan
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+
+permissions:
+  id-token: write       # Nécessaire pour l'authentification OIDC AWS
+  contents: read        # Nécessaire pour actions/checkout
+  pull-requests: write  # Pour poster des commentaires sur les PR
+
+jobs:
+  validate-code:
+    name: Validate Terraform Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::466850084367:role/GitHubActions-Terraform-Role-Projet1
+          aws-region: eu-west-3
+
+      # ✅ OPTION 1 : Utiliser OpenTofu
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.8.8' # Version stable d'OpenTofu
+
+      # ❌ COMMENTÉ : Terraform (utiliser OpenTofu à la place)
+      # - name: Setup Terraform
+      #   uses: hashicorp/setup-terraform@v3
+      #   with:
+      #     terraform_version: "1.12.1"
+
+      - name: OpenTofu Init (Validation Mode)
+        id: init
+        run: tofu init -backend=false -input=false
+        working-directory: ./project-aws
+
+      - name: OpenTofu Format Check
+        id: fmt
+        run: tofu fmt -check -recursive -diff
+        continue-on-error: true  # Ne pas bloquer si formatage incorrect
+        working-directory: ./project-aws
+
+      - name: Auto-format if needed (optional)
+        if: steps.fmt.outcome == 'failure'
+        run: |
+          tofu fmt -recursive
+          echo "⚠️ Files were auto-formatted. Please commit these changes."
+        working-directory: ./project-aws
+
+      - name: OpenTofu Validate
+        id: validate
+        run: tofu validate
+        working-directory: ./project-aws
+
+      # TFLint (Linter)
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.58.0
+
+      - name: Init TFLint
+        run: tflint --init
+        working-directory: ./project-aws
+
+      - name: Run TFLint
+        run: tflint --recursive
+        working-directory: ./project-aws
+        continue-on-error: true  # Ne pas bloquer sur les warnings
+
+      # Trivy (Security Scan)
+      - name: Run Trivy IaC scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: "config"
+          scan-ref: "./project-aws"  # Scanner uniquement project-aws
+          format: "sarif"
+          output: "trivy-results.sarif"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      # Résumé des résultats
