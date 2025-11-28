@@ -7,5 +7,8 @@ terraform {
     use_lockfile = true
     workspace_key_prefix = "env-"
     encrypt      = true
+
+    # Pour le verrouillage, utilisez DynamoDB (recommandé)
+    dynamodb_table       = "terraform-lock-table-projet1"
   }
 }
