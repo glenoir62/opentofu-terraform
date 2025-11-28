@@ -27,7 +27,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::472910743243:role/GitHubActions-Terraform-Role-Projet1 # !!  REMPLACEZ par l'ARN de votre rôle !!
+          role-to-assume: arn:aws:iam::466850084367:role/GitHubActions-Terraform-Role-Projet1 # !!  REMPLACEZ par l'ARN de votre rôle !!
           aws-region: eu-west-3 # Votre région AWS
 
       # Décommentez et adaptez la section pour OpenTofu si vous l'utilisez
