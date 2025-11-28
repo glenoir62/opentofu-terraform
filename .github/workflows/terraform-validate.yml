@@ -1,4 +1,5 @@
-name: Terraform Validate, Lint, Scan & Plan
+# Fichier : .github/workflows/terraform-pipeline.yml
+name: Terraform CI/CD Pipeline
 
 on:
   push:
@@ -13,7 +14,9 @@ on:
 permissions:
   id-token: write       # Nécessaire pour l'authentification OIDC AWS
   contents: read        # Nécessaire pour actions/checkout
-  pull-requests: write  # Pour poster des commentaires sur les PR
+  pull-requests: write  # Nécessaire pour commenter les PR
+  actions: read         # Nécessaire pour télécharger des artefacts
+  deployments: write    # Nécessaire pour interagir avec les environnements GitHub
   security-events: write # Pour upload des résultats Trivy
 
 jobs:
@@ -107,6 +110,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-code
     if: github.event_name == 'pull_request'
+    outputs:
+      plan_binary_filename: ${{ steps.plan.outputs.PLAN_BINARY_FILENAME }}
+      tf_workspace: ${{ steps.set_workspace.outputs.tf_workspace }}
 
     steps:
       - name: Checkout code
@@ -124,6 +130,7 @@ jobs:
           tofu_version: '1.8.8'
 
       - name: Determine Terraform workspace
+        id: set_workspace
         run: |
           if [ "${{ github.base_ref }}" = "main" ]; then
             WORKSPACE=prod
@@ -133,49 +140,51 @@ jobs:
             WORKSPACE=dev
           fi
           echo "WORKSPACE=$WORKSPACE" >> $GITHUB_ENV
+          echo "tf_workspace=$WORKSPACE" >> $GITHUB_OUTPUT
 
-      - name: OpenTofu Init (for plan)
+      - name: OpenTofu Init
         id: init_plan
         run: tofu init -input=false
         working-directory: ./project-aws
 
-      - name: Select OpenTofu workspace
+      - name: Select or Create OpenTofu workspace
         run: |
-          echo "Selecting workspace: $WORKSPACE"
-          tofu workspace select $WORKSPACE || tofu workspace new $WORKSPACE
+          echo "Selecting or creating workspace: $WORKSPACE"
+          tofu workspace select -or-create $WORKSPACE
         working-directory: ./project-aws
 
       - name: OpenTofu Plan
         id: plan
         run: |
+          PLAN_BINARY_FILENAME="tfplan-${WORKSPACE}.binary"
+          PLAN_TEXT_FILENAME="tfplan-${WORKSPACE}.txt"
+          echo "PLAN_BINARY_FILENAME=${PLAN_BINARY_FILENAME}" >> $GITHUB_OUTPUT
+
           echo "--- Running OpenTofu Plan ---"
-          tofu plan -input=false -no-color -detailed-exitcode > plan.txt
+          tofu plan -input=false -no-color -out=$PLAN_BINARY_FILENAME -detailed-exitcode > $PLAN_TEXT_FILENAME 2>&1 || true
           PLAN_COMMAND_RAW_EXIT_CODE=$?
           echo "OpenTofu Plan command raw exit code: $PLAN_COMMAND_RAW_EXIT_CODE"
 
-          echo "--- Content of plan.txt ---"
-          cat plan.txt
-          echo "--- End of plan.txt ---"
+          echo "--- Content of $PLAN_TEXT_FILENAME (first 50 lines) ---"
+          head -n 50 $PLAN_TEXT_FILENAME
+          echo "--- End of $PLAN_TEXT_FILENAME preview ---"
 
           FINAL_PLAN_DETAILS="Vérification manuelle du plan requise (analyse du contenu ou code de sortie non concluant)."
 
           if [ "$PLAN_COMMAND_RAW_EXIT_CODE" -eq 1 ]; then
-            FINAL_PLAN_DETAILS="Erreur critique lors de la génération du plan (OpenTofu a retourné le code: $PLAN_COMMAND_RAW_EXIT_CODE)"
-            echo "Condition: La commande OpenTofu Plan a directement signalé une erreur."
-          elif grep -q -E "(No changes\. Infrastructure is up-to-date\.|No changes\. Your infrastructure matches the configuration\.|Plan: 0 to add, 0 to change, 0 to destroy\.)" plan.txt; then
-            FINAL_PLAN_DETAILS="aucun changement détecté (confirmé par l'analyse du contenu du plan)"
-            echo "Condition: Message explicite d'absence de changement trouvé dans plan.txt."
-          elif PLAN_SUMMARY_LINE=$(grep -E "^Plan: ([0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy\.)$" plan.txt) && \
-              (echo "$PLAN_SUMMARY_LINE" | grep -q -E "([1-9][0-9]* to add|[1-9][0-9]* to change|[1-9][0-9]* to destroy)") ; then
+            FINAL_PLAN_DETAILS="❌ Erreur critique lors de la génération du plan (OpenTofu a retourné le code: $PLAN_COMMAND_RAW_EXIT_CODE)"
+          elif grep -q -E "(No changes\. Infrastructure is up-to-date\.|No changes\. Your infrastructure matches the configuration\.|Plan: 0 to add, 0 to change, 0 to destroy\.)" $PLAN_TEXT_FILENAME; then
+            FINAL_PLAN_DETAILS="✅ Aucun changement détecté (confirmé par l'analyse du contenu du plan)."
+          elif PLAN_SUMMARY_LINE=$(grep -E "^Plan: ([0-9]+ to add, [0-9]+ to change, [0-9]+ to destroy\.)$" $PLAN_TEXT_FILENAME) && \
+               (echo "$PLAN_SUMMARY_LINE" | grep -q -E "([1-9][0-9]* to add|[1-9][0-9]* to change|[1-9][0-9]* to destroy)"); then
             ADD=$(echo "$PLAN_SUMMARY_LINE" | sed -n 's/^Plan: \([0-9]*\) to add,.*/\1/p')
             CHANGE=$(echo "$PLAN_SUMMARY_LINE" | sed -n 's/^Plan: [0-9]* to add, \([0-9]*\) to change,.*/\1/p')
             DESTROY=$(echo "$PLAN_SUMMARY_LINE" | sed -n 's/^Plan:.*, \([0-9]*\) to destroy.$/\1/p')
-            FINAL_PLAN_DETAILS="changements détectés (analyse du résumé: $ADD à ajouter, $CHANGE à modifier, $DESTROY à détruire). Voir l'artefact."
-            echo "Condition: Changements détectés à partir de la ligne de résumé de plan.txt."
+            FINAL_PLAN_DETAILS="⚠️ Changements détectés (analyse du résumé: $ADD à ajouter, $CHANGE à modifier, $DESTROY à détruire). Voir l'artefact."
           else
-            echo "Warning: Contenu du plan ambigu pour la détection automatisée des changements. Code de sortie brut: $PLAN_COMMAND_RAW_EXIT_CODE."
+            echo "Warning: Contenu du plan ambigu. Code de sortie: $PLAN_COMMAND_RAW_EXIT_CODE."
             if [ "$PLAN_COMMAND_RAW_EXIT_CODE" -eq 0 ] || [ "$PLAN_COMMAND_RAW_EXIT_CODE" -eq 2 ]; then
-                FINAL_PLAN_DETAILS="Plan généré (code: $PLAN_COMMAND_RAW_EXIT_CODE), mais contenu non analysable automatiquement. Vérification manuelle requise."
+              FINAL_PLAN_DETAILS="Plan généré (code: $PLAN_COMMAND_RAW_EXIT_CODE), mais contenu non analysable automatiquement. Vérification manuelle requise."
             fi
           fi
 
@@ -189,23 +198,155 @@ jobs:
         continue-on-error: true
 
       - name: Comment PR with plan output
-        if: success() || failure()
+        if: always()
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### 📝 Résultat du `tofu plan` pour le workspace `${{ env.WORKSPACE }}`
-
+            ### 📝 Résultat du `tofu plan` pour le workspace `${{ steps.set_workspace.outputs.tf_workspace }}`
+            
             ${{ steps.plan.outputs.PLAN_DETAILS }}
-
-            Le plan complet est disponible en tant qu'artefact attaché à ce workflow.
-
+            
+            Le plan complet (`${{ steps.plan.outputs.PLAN_BINARY_FILENAME }}.txt`) et le plan binaire (`${{ steps.plan.outputs.PLAN_BINARY_FILENAME }}`) sont disponibles en tant qu'artefacts.
+            
             **Veuillez examiner attentivement le plan avant d'approuver cette PR.**
 
-      - name: Upload OpenTofu plan artifact
-        if: success() || failure()
+      - name: Upload OpenTofu Plan Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: opentofu-plan-${{ env.WORKSPACE }}
-          path: ./project-aws/plan.txt
+          name: opentofu-plan-${{ steps.set_workspace.outputs.tf_workspace }}
+          path: |
+            ./project-aws/tfplan-${{ steps.set_workspace.outputs.tf_workspace }}.binary
+            ./project-aws/tfplan-${{ steps.set_workspace.outputs.tf_workspace }}.txt
           retention-days: 7
+          if-no-files-found: ignore
+
+  terraform_apply_staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate-code]
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: ${{ steps.get_app_url_staging.outputs.app_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::466850084367:role/GitHubActions-Terraform-Role-Projet1
+          aws-region: eu-west-3
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.8.8'
+
+      - name: OpenTofu Init
+        run: tofu init -input=false
+        working-directory: ./project-aws
+
+      - name: Select Staging Workspace
+        run: tofu workspace select -or-create dev
+        working-directory: ./project-aws
+
+      - name: OpenTofu Plan for Staging
+        id: plan_staging
+        run: |
+          tofu plan -input=false -no-color -out=tfplan-staging.binary
+          tofu show -no-color tfplan-staging.binary > tfplan-staging.txt
+          if grep -q "resources to be destroyed" tfplan-staging.txt; then
+            echo "::warning title=Changements destructeurs détectés::Le plan pour staging contient des destructions. Vérification manuelle recommandée."
+          fi
+          echo "plan_file=tfplan-staging.binary" >> $GITHUB_OUTPUT
+        working-directory: ./project-aws
+
+      - name: OpenTofu Apply to Staging
+        run: tofu apply -input=false ${{ steps.plan_staging.outputs.plan_file }}
+        working-directory: ./project-aws
+
+      - name: Récupérer l'IP et formater la sortie
+        id: get_app_url_staging
+        run: |
+          set +e
+          APP_IP=$(tofu output -raw web_server_public_ip)
+          RETCODE=$?
+          set -e
+
+          if [ $RETCODE -ne 0 ] || [ -z "$APP_IP" ]; then
+            echo "app_url=non-disponible" >> $GITHUB_OUTPUT
+            echo "URL de l'application (staging): non-disponible"
+          else
+            echo "app_url=http://${APP_IP}" >> $GITHUB_OUTPUT
+            echo "URL de l'application (staging): http://${APP_IP}"
+          fi
+        working-directory: ./project-aws
+
+  terraform_apply_production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [terraform_apply_staging]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: ${{ steps.get_app_url_prod.outputs.app_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::466850084367:role/GitHubActions-Terraform-Role-Projet1
+          aws-region: eu-west-3
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.8.8'
+
+      - name: OpenTofu Init
+        run: tofu init -input=false
+        working-directory: ./project-aws
+
+      - name: Select Production Workspace
+        run: tofu workspace select -or-create prod
+        working-directory: ./project-aws
+
+      - name: OpenTofu Plan for Production
+        id: plan_prod
+        run: |
+          tofu plan -input=false -no-color -out=tfplan-prod.binary
+          tofu show -no-color tfplan-prod.binary > tfplan-prod.txt
+          if grep -q "resources to be destroyed" tfplan-prod.txt; then
+            echo "::error title=Changements destructeurs détectés en production !::Le plan pour production contient des destructions. Annulation du déploiement automatique."
+            # exit 1 # Décommentez pour faire échouer le job si des destructions sont détectées
+          fi
+          echo "plan_file=tfplan-prod.binary" >> $GITHUB_OUTPUT
+        working-directory: ./project-aws
+
+      - name: OpenTofu Apply to Production
+        run: tofu apply -input=false ${{ steps.plan_prod.outputs.plan_file }}
+        working-directory: ./project-aws
+
+      - name: Récupérer l'IP et formater la sortie (Production)
+        id: get_app_url_prod
+        run: |f
+          set +e
+          APP_IP=$(tofu output -raw web_server_public_ip)
+          RETCODE=$?
+          set -e
+
+          if [ $RETCODE -ne 0 ] || [ -z "$APP_IP" ]; then
+            echo "app_url=non-disponible" >> $GITHUB_OUTPUT
+            echo "URL de l'application (production): non-disponible"
+          else
+            echo "app_url=http://${APP_IP}" >> $GITHUB_OUTPUT
+            echo "URL de l'application (production): http://${APP_IP}"
+          fi
+        working-directory: ./project-aws
