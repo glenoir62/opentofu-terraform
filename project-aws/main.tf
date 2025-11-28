@@ -83,6 +83,7 @@ module "serveur_web_1" {
   environment_tag = var.environment_tag
   subnet_id       = module.vpc.public_subnets[0] # Utilise le premier sous-réseau public du module VPC
   vpc_id          = module.vpc.vpc_id            # Utilise l'ID du VPC créé par le module VPC
+  secret_tag_value_sm = local.app_api_key_from_sm
 }
 
 # Vous pourriez même appeler le module une seconde fois pour créer un autre serveur !
@@ -94,3 +95,7 @@ module "serveur_web_1" {
 #   project_name  = var.project_name
 #   environment_tag = "Staging" # Environnement différent
 # }
+
+data "aws_secretsmanager_secret_version" "app_api_key_secret" {
+  secret_id = "projet1/app/api_key" // REMPLACEZ si vous avez utilisé un autre nom
+}

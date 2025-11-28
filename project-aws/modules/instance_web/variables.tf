@@ -38,3 +38,9 @@ variable "vpc_id" {
   description = "L'ID du VPC pour le groupe de sécurité de l'instance."
   type        = string
 }
+
+variable "secret_tag_value_sm" {
+  description = "Valeur secrète de SM pour un tag de démonstration."
+  type        = string
+  sensitive   = true
+}

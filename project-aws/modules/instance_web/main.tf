@@ -30,10 +30,11 @@ resource "aws_security_group" "web_sg" {
 }
 
 resource "aws_instance" "web_server" {
-  ami           = var.ami_id        // Variable d'entrée du module
+  ami           = var.ami_id // Variable d'entrée du module
   instance_type = terraform.workspace == "prod" ? var.instance_type_prod : var.instance_type_dev
-  //count         = terraform.workspace == "prod" ? 3 : 1
-  subnet_id     = var.subnet_id     // Variable d'entrée du module
+  subnet_id     = var.subnet_id   // Variable d'entrée du module
+
+
   associate_public_ip_address = true
 
   metadata_options {
@@ -41,7 +42,6 @@ resource "aws_instance" "web_server" {
     http_endpoint = "enabled"
   }
 
-  # Associer le groupe de sécurité créé DANS CE MODULE
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   user_data = <<-EOF
@@ -85,16 +85,24 @@ resource "aws_instance" "web_server" {
                   <tr><td>Zone de Disponibilité</td><td>$AVAILABILITY_ZONE</td></tr>
                   <tr><td>IP Publique IPv4</td><td>$PUBLIC_IPV4</td></tr>
                   <tr><td>IP Privée IPv4</td><td>$PRIVATE_IPV4</td></tr>
+                  <tr><td>Nom du Projet</td><td>${var.project_name}</td></tr>
+                  <tr><td>Tag Secret depuis SM</td><td>${var.secret_tag_value_sm}</td></tr>
                 </table>
               </body>
             </html>
             EOT
             EOF
 
-  tags = {
-    Name        = "web-server-${terraform.workspace}"
-    Environment = terraform.workspace
-    ManagedBy   = "Terraform"
-    Project     = var.project_name
-  }
+  tags = merge(
+    {
+      Name        = "web-server-${terraform.workspace}"
+      Environment = terraform.workspace
+      ManagedBy   = "Terraform"
+      Project     = var.project_name
+    },
+    {
+      SecretFromSM = var.secret_tag_value_sm
+    } # Tag secret récupéré depuis AWS Secrets Manager
+  )
+
 }
